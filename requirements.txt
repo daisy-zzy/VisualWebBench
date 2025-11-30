@@ -10,3 +10,5 @@ tiktoken
 openai
 anthropic
 google-generativeai
+opencv-python
+huggingface-hub>=0.34.0,<1.0

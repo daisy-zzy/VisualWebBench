@@ -46,7 +46,12 @@ def evaluate(
     print('='*80)
     print('Prompt: ', prompt)
     data_size = len(dataset)
+
+    cnt = 0 # used for testing, only run 10 samples
     for idx_ in tqdm(range(data_size), desc=task_type):
+        # cnt += 1
+        # if cnt == 10:
+        #     break
         sample = dataset[idx_]
         
         if task_type in [CAPTION_TASK, HEADING_OCR_TASK]:
@@ -64,7 +69,23 @@ def evaluate(
         else:
             raise NotImplementedError(f"Task type {task_type} not implemented.")
             
-        response = model_adapter(cur_prompt, sample['image'], task_type=task_type)
+        # response = model_adapter(cur_prompt, sample['image'], task_type=task_type)
+        # model_adapter is callable: (prompt, image, task_type) -> string
+        if type(model_adapter).__name__ == "DeepseekAgentAdapter" and task_type==WEBQA_TASK:
+            # Our custom adapter: give it the full sample
+            response = model_adapter(
+                cur_prompt,
+                sample["image"],
+                task_type=task_type,
+                question=sample["question"],
+            )
+        else:
+            # All other adapters: original behavior
+            response = model_adapter(
+                cur_prompt,
+                sample["image"],
+                task_type=task_type,
+            )
         
         preds.append(response)
         golds.append(sample['answer'])
@@ -92,7 +113,18 @@ def main(args):
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
     )
-    model_adapter = getattr(model_adapters, model_config['model_adapter'])(model, tokenizer)
+    adapter_cls = getattr(model_adapters, model_config['model_adapter'])
+    model_adapter = adapter_cls(
+        model, 
+        tokenizer,
+        use_agent=True,     # turn on VisualCoTAgent for WEBQA
+        max_new_tokens=model_config.get("max_new_tokens", 128),
+        temperature=model_config.get("temperature", 0.0),
+        agent_grid_size=3,
+        agent_max_crops=1,
+        agent_margin_frac_of_cell=0.2,
+        agent_save_dir="./agent_debug_images",   # or None
+    )
 
     if ',' in args.task_type:
         task_types = [item.strip() for item in args.task_type.split(',')]
